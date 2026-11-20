@@ -8,8 +8,8 @@
     <key>CFBundleName</key><string>Body and Soul</string>
     <key>CFBundleDisplayName</key><string>Body and Soul</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.3.9</string>
-    <key>CFBundleVersion</key><string>13</string>
+    <key>CFBundleShortVersionString</key><string>1.3.10</string>
+    <key>CFBundleVersion</key><string>14</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>SUFeedURL</key><string>https://raw.githubusercontent.com/oscarwroche/body-and-soul/main/Updates/appcast.xml</string>
     <key>SUPublicEDKey</key><string>Q5I1pWUGNL6FtWGMHqeaxngpC5UJ9a03Xgno5o3/e08=</string>

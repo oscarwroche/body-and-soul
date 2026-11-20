@@ -43,7 +43,7 @@ struct ScoreView: View {
             scoreSettings
             controls
             staff
-            Text("Click past the last note to add one. Click within the written staff to move a selected note. End returns to note entry. A–G writes or edits, ↑↓ moves pitch, ←→ selects, Return inserts.")
+            Text("Click a note’s column to select it. Click inside its blue highlight to change pitch. Click past the last note to add one. End returns to note entry. A–G writes or edits, ↑↓ moves pitch, ←→ selects, Return inserts.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -173,7 +173,7 @@ struct ScoreView: View {
     }
 
     private func editableStaff(_ row: ScoreLayout, width: CGFloat, isLast: Bool) -> some View {
-        let height: CGFloat = 160
+        let height = ScoreLayout.editorHeight
         return StaffDrawing(layout: row, cursor: cursor, showEntry: isLast && cursor == notes.count)
             .frame(width: width, height: height)
             .scaleEffect(scale, anchor: .topLeading)
@@ -192,7 +192,7 @@ struct ScoreView: View {
 
     private func clickStaff(at point: CGPoint, in row: ScoreLayout) {
         focused = true
-        switch row.click(at: point, cursor: cursor, entryIndex: notes.count) {
+        switch row.click(at: point, cursor: cursor) {
         case .select(let index):
             cursor = index
         case .movePitch(let pitch):
@@ -378,7 +378,7 @@ struct StaffDrawing: View {
             var previous: ScoreLayout.Fragment?
             for (index, fragment) in layout.fragments.enumerated() {
                 let color: Color = fragment.index == cursor ? .accentColor : .primary
-                if fragment.index == cursor { highlight(fragment.x, height: size.height, in: context) }
+                if fragment.index == cursor { highlight(layout.selectionPath(at: index, height: size.height), in: context) }
                 draw(fragment, beam: beams[index], in: context, color: color)
                 if fragment.tiedFromPrevious, let pitch = fragment.pitch {
                     tie(from: previous.map { $0.x + 7 } ?? fragment.x - 22, to: fragment.x - 7,
@@ -394,7 +394,10 @@ struct StaffDrawing: View {
                     pitch: pitch, in: context, color: .primary)
             }
             if showEntry {
-                highlight(layout.appendX, height: size.height, in: context)
+                let x = layout.appendX
+                let halfWidth = ScoreLayout.selectionHalfWidth
+                highlight(ScoreLayout.selectionPath(from: x - halfWidth, to: x + halfWidth, height: size.height),
+                          in: context)
                 line(in: context, from: CGPoint(x: layout.appendX, y: 60),
                      to: CGPoint(x: layout.appendX, y: 116), color: .accentColor)
             }
@@ -411,10 +414,8 @@ struct StaffDrawing: View {
         context.stroke(path, with: .color(color), lineWidth: 1.3)
     }
 
-    private func highlight(_ x: CGFloat, height: CGFloat, in context: GraphicsContext) {
-        let halfWidth = ScoreLayout.selectionHalfWidth
-        let rect = CGRect(x: x - halfWidth, y: 5, width: halfWidth * 2, height: height - 10)
-        context.fill(Path(roundedRect: rect, cornerRadius: 5), with: .color(.accentColor.opacity(0.10)))
+    private func highlight(_ path: CGPath, in context: GraphicsContext) {
+        context.fill(Path(path), with: .color(.accentColor.opacity(0.10)))
     }
 
     private func draw(_ note: ScoreLayout.Fragment, beam: Beam?, in context: GraphicsContext, color: Color) {

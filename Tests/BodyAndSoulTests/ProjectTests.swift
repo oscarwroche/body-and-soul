@@ -47,7 +47,7 @@ import Testing
     #expect(layout.fragments.filter { $0.index == 4 }.allSatisfy { $0.pitch == nil })
     #expect(layout.fragments.reduce(0) { $0 + $1.value.ticks(dotted: $1.dotted) } ==
             notes.reduce(0) { $0 + $1.ticks })
-    #expect(layout.index(at: layout.appendX, entryIndex: notes.count) == notes.count)
+    #expect(layout.click(at: CGPoint(x: layout.appendX, y: ScoreLayout.y(for: 4)), cursor: notes.count) == .append(4))
     #expect(ScoreLayout.pitch(at: ScoreLayout.y(for: 8)) == 8)
     let waltz = ScoreLayout(Array(repeating: ScoreEvent(pitch: 0), count: 3), meter: .threeFour)
     #expect(waltz.barlines.count == 1)
@@ -129,13 +129,13 @@ import Testing
     #expect(!singleMarker.looping)
 }
 
-@Test func clickingTheNextStaffSpaceDoesNotHitTheSelectedNotehead() throws {
+@Test func clickingTheNextStaffSpaceChangesPitchAndRestsRemainSelectable() throws {
     let layout = ScoreLayout([ScoreEvent(pitch: 4), ScoreEvent(pitch: 6), ScoreEvent(pitch: nil)])
     let note = try #require(layout.fragments.first)
     let rest = try #require(layout.fragments.last)
-    #expect(layout.event(at: CGPoint(x: note.x, y: ScoreLayout.y(for: 4))) == 0)
-    #expect(layout.event(at: CGPoint(x: note.x, y: ScoreLayout.y(for: 5))) == nil)
-    #expect(layout.event(at: CGPoint(x: rest.x, y: ScoreLayout.y(for: 4))) == 2)
+    #expect(layout.click(at: CGPoint(x: note.x, y: ScoreLayout.y(for: 4)), cursor: 0) == .select(0))
+    #expect(layout.click(at: CGPoint(x: note.x, y: ScoreLayout.y(for: 5) + 1), cursor: 0) == .movePitch(5))
+    #expect(layout.click(at: CGPoint(x: rest.x, y: ScoreLayout.y(for: 4)), cursor: 0) == .select(2))
 }
 
 @Test func clickingPastASelectedNoteAppendsAtTheClickedPitch() throws {
@@ -144,10 +144,34 @@ import Testing
     let last = try #require(row.fragments.last)
     let y = ScoreLayout.y(for: 5)
     let after = CGPoint(x: last.x + ScoreLayout.selectionHalfWidth + 1, y: y)
-    #expect(row.click(at: after, cursor: 1, entryIndex: notes.count) == .append(5))
-    #expect(row.click(at: CGPoint(x: last.x, y: y), cursor: 1, entryIndex: notes.count) == .movePitch(5))
+    #expect(row.click(at: after, cursor: 1) == .append(5))
+    #expect(row.click(at: CGPoint(x: last.x, y: y), cursor: 1) == .movePitch(5))
     let notehead = CGPoint(x: last.x, y: ScoreLayout.y(for: 4))
-    #expect(row.click(at: notehead, cursor: 0, entryIndex: notes.count) == .select(1))
+    #expect(row.click(at: notehead, cursor: 0) == .select(1))
+}
+
+@Test func pitchChangesOnlyInsideTheSelectedNotesZone() {
+    let row = ScoreLayout([ScoreEvent(pitch: 2), ScoreEvent(pitch: 4), ScoreEvent(pitch: 6)])
+    let first = row.fragments[0]
+    let second = row.fragments[1]
+    let otherZone = CGPoint(x: second.x, y: ScoreLayout.y(for: 7))
+    let gap = CGPoint(x: (first.x + second.x) / 2, y: otherZone.y)
+
+    #expect(row.click(at: otherZone, cursor: 0) == .select(1))
+    #expect(row.click(at: otherZone, cursor: 1) == .movePitch(7))
+    #expect(row.click(at: gap, cursor: 0) == nil)
+    #expect(row.click(at: CGPoint(x: first.x, y: 3), cursor: 0) == nil)
+}
+
+@Test func closelySpacedNoteZonesMeetAtTheMidpoint() {
+    let row = ScoreLayout([ScoreEvent(pitch: 2, value: .eighth), ScoreEvent(pitch: 4, value: .eighth)],
+                          spacing: 0.84)
+    let midpoint = (row.fragments[0].x + row.fragments[1].x) / 2
+    let y = ScoreLayout.y(for: 7)
+    #expect(row.selectionPath(at: 0, height: ScoreLayout.editorHeight).boundingBox.maxX == midpoint)
+    #expect(row.selectionPath(at: 1, height: ScoreLayout.editorHeight).boundingBox.minX == midpoint)
+    #expect(row.click(at: CGPoint(x: midpoint - 1, y: y), cursor: 0) == .movePitch(7))
+    #expect(row.click(at: CGPoint(x: midpoint + 1, y: y), cursor: 0) == .select(1))
 }
 
 @Test func clickingPastTheLastNoteCanAppendWhenTheEntryWraps() throws {
@@ -155,11 +179,11 @@ import Testing
     let rows = ScoreLayout(notes).wrappedRows(width: 300, includeEntry: true)
     let last = try #require(rows[0].fragments.last)
     let after = CGPoint(x: last.x + ScoreLayout.selectionHalfWidth + 1, y: ScoreLayout.y(for: 2))
-    #expect(rows[0].click(at: after, cursor: 3, entryIndex: notes.count) == .append(2))
+    #expect(rows[0].click(at: after, cursor: 3) == .append(2))
 
     let longer = notes + [ScoreEvent(pitch: 3)]
     let earlierRow = ScoreLayout(longer).wrappedRows(width: 300, includeEntry: true)[0]
-    #expect(earlierRow.click(at: after, cursor: 3, entryIndex: longer.count) == .movePitch(2))
+    #expect(earlierRow.click(at: after, cursor: 3) == nil)
 }
 
 @Test func eighthNotesBeamByBeatInSimpleAndCompoundMeter() {
@@ -200,7 +224,8 @@ import Testing
     #expect(rows.flatMap(\.fragments).map(\.index) == Array(notes.indices))
     for row in rows {
         let first = try #require(row.fragments.first)
-        #expect(row.index(at: first.x) == first.index)
+        let point = CGPoint(x: first.x, y: ScoreLayout.y(for: 8))
+        #expect(row.click(at: point, cursor: notes.count) == .select(first.index))
         #expect(first.bar == first.index / 16 + 1)
     }
     #expect(rows.allSatisfy { row in row.barlines.allSatisfy { $0 <= 532 } })
@@ -231,11 +256,11 @@ import Testing
     let entry = try #require(editor.last)
     #expect(print.count == 1)
     #expect(editor.count == 2)
-    #expect(editor.first?.index(at: 280) == 3)
+    #expect(editor.first?.click(at: CGPoint(x: 280, y: ScoreLayout.y(for: 1)), cursor: notes.count) == .select(3))
     #expect(entry.firstBar == 2)
     #expect(entry.fragments.isEmpty)
-    #expect(entry.index(at: entry.appendX, entryIndex: notes.count) == 4)
+    #expect(entry.click(at: CGPoint(x: entry.appendX, y: ScoreLayout.y(for: 1)), cursor: notes.count) == .append(1))
     let wide = try #require(layout.wrappedRows(width: 650, includeEntry: true).last)
     #expect(wide.fragments.count == 4)
-    #expect(wide.index(at: wide.appendX, entryIndex: notes.count) == 4)
+    #expect(wide.click(at: CGPoint(x: wide.appendX, y: ScoreLayout.y(for: 1)), cursor: notes.count) == .append(1))
 }

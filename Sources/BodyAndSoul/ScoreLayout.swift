@@ -1,7 +1,9 @@
+import CoreGraphics
 import Foundation
 
 struct ScoreLayout {
     static let height: CGFloat = 188
+    static let editorHeight: CGFloat = 160
     static let bottomLine: CGFloat = 112
     static let step: CGFloat = 6
     static let selectionHalfWidth: CGFloat = 22
@@ -78,34 +80,32 @@ struct ScoreLayout {
         appendX = x
     }
 
-    func index(at x: CGFloat, entryIndex: Int? = nil) -> Int? {
-        guard x >= firstX - Self.selectionHalfWidth else { return nil }
+    func click(at point: CGPoint, cursor: Int) -> Click? {
         let appendStart = fragments.last.map { $0.x + Self.selectionHalfWidth } ?? firstX - Self.selectionHalfWidth
-        if let entryIndex, acceptsAppend, x >= appendStart { return entryIndex }
-        return nearestEvent(to: x)
-    }
-
-    func click(at point: CGPoint, cursor: Int, entryIndex: Int) -> Click? {
-        if let selected = event(at: point) { return .select(selected) }
-        guard let index = index(at: point.x, entryIndex: entryIndex) else { return nil }
+        if acceptsAppend, point.x >= appendStart { return .append(Self.pitch(at: point.y)) }
+        guard let index = fragments.indices.min(by: {
+            abs(fragments[$0].x - point.x) < abs(fragments[$1].x - point.x)
+        }), selectionPath(at: index, height: Self.editorHeight).contains(point) else { return nil }
+        let note = fragments[index]
         let pitch = Self.pitch(at: point.y)
-        if index == entryIndex { return .append(pitch) }
-        if fragments.contains(where: { $0.index == cursor && $0.pitch != nil }) { return .movePitch(pitch) }
-        return .select(index)
+        if note.index == cursor, let currentPitch = note.pitch, currentPitch != pitch {
+            return .movePitch(pitch)
+        }
+        return .select(note.index)
     }
 
-    func event(at point: CGPoint) -> Int? {
-        fragments.first { fragment in
-            guard abs(fragment.x - point.x) <= 10 else { return false }
-            if let pitch = fragment.pitch {
-                return abs(Self.y(for: pitch) - point.y) < Self.step
-            }
-            return abs(Self.y(for: 4) - point.y) <= 20
-        }?.index
+    func selectionPath(at index: Int, height: CGFloat) -> CGPath {
+        let x = fragments[index].x
+        let left = index > 0 ? max(x - Self.selectionHalfWidth, (fragments[index - 1].x + x) / 2)
+            : x - Self.selectionHalfWidth
+        let right = index + 1 < fragments.count
+            ? min(x + Self.selectionHalfWidth, (x + fragments[index + 1].x) / 2) : x + Self.selectionHalfWidth
+        return Self.selectionPath(from: left, to: right, height: height)
     }
 
-    private func nearestEvent(to x: CGFloat) -> Int? {
-        fragments.min { abs($0.x - x) < abs($1.x - x) }?.index
+    static func selectionPath(from left: CGFloat, to right: CGFloat, height: CGFloat) -> CGPath {
+        let rect = CGRect(x: left, y: 5, width: right - left, height: height - 10)
+        return CGPath(roundedRect: rect, cornerWidth: 5, cornerHeight: 5, transform: nil)
     }
 
     var beamGroups: [Range<Int>] {
