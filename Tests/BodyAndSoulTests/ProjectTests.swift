@@ -138,6 +138,60 @@ import Testing
     #expect(layout.event(at: CGPoint(x: rest.x, y: ScoreLayout.y(for: 4))) == 2)
 }
 
+@Test func clickingPastASelectedNoteAppendsAtTheClickedPitch() throws {
+    let notes = [ScoreEvent(pitch: 2), ScoreEvent(pitch: 4, value: .eighth)]
+    let row = ScoreLayout(notes, spacing: 0.84)
+    let last = try #require(row.fragments.last)
+    let y = ScoreLayout.y(for: 5)
+    let after = CGPoint(x: last.x + ScoreLayout.selectionHalfWidth + 1, y: y)
+    #expect(row.click(at: after, cursor: 1, entryIndex: notes.count) == .append(5))
+    #expect(row.click(at: CGPoint(x: last.x, y: y), cursor: 1, entryIndex: notes.count) == .movePitch(5))
+    let notehead = CGPoint(x: last.x, y: ScoreLayout.y(for: 4))
+    #expect(row.click(at: notehead, cursor: 0, entryIndex: notes.count) == .select(1))
+}
+
+@Test func clickingPastTheLastNoteCanAppendWhenTheEntryWraps() throws {
+    let notes = Array(repeating: ScoreEvent(pitch: 1), count: 4)
+    let rows = ScoreLayout(notes).wrappedRows(width: 300, includeEntry: true)
+    let last = try #require(rows[0].fragments.last)
+    let after = CGPoint(x: last.x + ScoreLayout.selectionHalfWidth + 1, y: ScoreLayout.y(for: 2))
+    #expect(rows[0].click(at: after, cursor: 3, entryIndex: notes.count) == .append(2))
+
+    let longer = notes + [ScoreEvent(pitch: 3)]
+    let earlierRow = ScoreLayout(longer).wrappedRows(width: 300, includeEntry: true)[0]
+    #expect(earlierRow.click(at: after, cursor: 3, entryIndex: longer.count) == .movePitch(2))
+}
+
+@Test func eighthNotesBeamByBeatInSimpleAndCompoundMeter() {
+    let eighths = Array(repeating: ScoreEvent(pitch: 4, value: .eighth), count: 11)
+    let simple = ScoreLayout(eighths)
+    #expect(simple.beamGroups == [0..<2, 2..<4, 4..<6, 6..<8, 8..<10])
+    #expect(ScoreLayout(eighths, meter: .sixEight).beamGroups == [0..<3, 3..<6, 6..<9, 9..<11])
+    let wrapped = simple.wrappedRows(width: 185)
+    #expect(wrapped.count == eighths.count)
+    #expect(wrapped.allSatisfy { $0.beamGroups.isEmpty })
+}
+
+@Test func restsBreakBeamsAndOffbeatNotesThatCrossABeatStayFlagged() {
+    let eighth = ScoreEvent(pitch: 4, value: .eighth)
+    let sixteenth = ScoreEvent(pitch: 3, value: .sixteenth)
+    let rest = ScoreEvent(pitch: nil, value: .sixteenth)
+    let layout = ScoreLayout([sixteenth, rest, sixteenth, eighth, sixteenth, eighth, eighth])
+    #expect(layout.beamGroups == [4..<6])
+}
+
+@Test func quartersKeepTheirDurationWhenAQuarterIsSplitAtTheBarline() {
+    let quarter = ScoreEvent(pitch: 4)
+    let notes = [quarter, quarter, quarter, ScoreEvent(pitch: 4, value: .eighth), quarter]
+    let layout = ScoreLayout(notes)
+    #expect(layout.fragments.first?.value == .quarter)
+    #expect(layout.fragments.first?.value.flags == 0)
+    let acrossBarline = layout.fragments.filter { $0.index == 4 }
+    #expect(acrossBarline.map(\.value) == [.eighth, .eighth])
+    #expect(acrossBarline.map(\.tiedFromPrevious) == [false, true])
+    #expect(acrossBarline.reduce(0) { $0 + $1.value.ticks(dotted: $1.dotted) } == quarter.ticks)
+}
+
 @Test @MainActor func scoresWrapAndExportToMultiplePrintablePages() throws {
     let notes = Array(repeating: ScoreEvent(pitch: 8, value: .sixteenth), count: 80)
     let layout = ScoreLayout(notes, key: .bFlat, spacing: 0.78)

@@ -4,6 +4,13 @@ struct ScoreLayout {
     static let height: CGFloat = 188
     static let bottomLine: CGFloat = 112
     static let step: CGFloat = 6
+    static let selectionHalfWidth: CGFloat = 22
+
+    enum Click: Equatable {
+        case select(Int)
+        case movePitch(Int)
+        case append(Int)
+    }
 
     struct Fragment {
         let index: Int
@@ -14,6 +21,7 @@ struct ScoreLayout {
         let dotted: Bool
         let accidental: Accidental?
         let tiedFromPrevious: Bool
+        let beamBeat: Int?
     }
 
     let meter: Meter
@@ -27,6 +35,7 @@ struct ScoreLayout {
     var firstBar: Int { fragments.first?.bar ?? emptyRowBar }
     private var entryBar: Int { barlines.count + 1 }
     private var emptyRowBar = 1
+    private var acceptsAppend = true
 
     init(_ notes: [ScoreEvent], meter: Meter = .fourFour, key: KeySignature = .c, spacing: CGFloat = 1) {
         self.meter = meter
@@ -34,6 +43,7 @@ struct ScoreLayout {
         appendX = 0
         var x = firstX
         var offset = 0
+        let beatTicks = NoteValue.quarter.ticks(dotted: meter == .sixEight)
         var measureAccidentals: [Int: Accidental] = [:]
         for (index, note) in notes.enumerated() {
             var remaining = note.ticks
@@ -49,8 +59,11 @@ struct ScoreLayout {
                     symbol = spelling != previous || note.accidental == .natural ? spelling : nil
                     measureAccidentals[pitch] = spelling
                 }
+                let beat = note.pitch != nil && value.flags > 0 && offset % beatTicks + ticks <= beatTicks
+                    ? offset / beatTicks : nil
                 fragments.append(Fragment(index: index, x: x, bar: barlines.count + 1, pitch: note.pitch, value: value,
-                                          dotted: dotted, accidental: symbol, tiedFromPrevious: continuation))
+                                          dotted: dotted, accidental: symbol, tiedFromPrevious: continuation,
+                                          beamBeat: beat))
                 remaining -= ticks
                 offset += ticks
                 x += (44 + CGFloat(ticks) * 0.45) * spacing
@@ -66,9 +79,19 @@ struct ScoreLayout {
     }
 
     func index(at x: CGFloat, entryIndex: Int? = nil) -> Int? {
-        guard x >= firstX - 22 else { return nil }
-        if let entryIndex, x >= appendX - 22 { return entryIndex }
+        guard x >= firstX - Self.selectionHalfWidth else { return nil }
+        let appendStart = fragments.last.map { $0.x + Self.selectionHalfWidth } ?? firstX - Self.selectionHalfWidth
+        if let entryIndex, acceptsAppend, x >= appendStart { return entryIndex }
         return nearestEvent(to: x)
+    }
+
+    func click(at point: CGPoint, cursor: Int, entryIndex: Int) -> Click? {
+        if let selected = event(at: point) { return .select(selected) }
+        guard let index = index(at: point.x, entryIndex: entryIndex) else { return nil }
+        let pitch = Self.pitch(at: point.y)
+        if index == entryIndex { return .append(pitch) }
+        if fragments.contains(where: { $0.index == cursor && $0.pitch != nil }) { return .movePitch(pitch) }
+        return .select(index)
     }
 
     func event(at point: CGPoint) -> Int? {
@@ -83,6 +106,23 @@ struct ScoreLayout {
 
     private func nearestEvent(to x: CGFloat) -> Int? {
         fragments.min { abs($0.x - x) < abs($1.x - x) }?.index
+    }
+
+    var beamGroups: [Range<Int>] {
+        var groups: [Range<Int>] = []
+        var start = 0
+        while start < fragments.count {
+            let first = fragments[start]
+            var end = start + 1
+            if let beat = first.beamBeat {
+                while end < fragments.count, fragments[end].bar == first.bar, fragments[end].beamBeat == beat {
+                    end += 1
+                }
+                if end - start > 1 { groups.append(start..<end) }
+            }
+            start = end
+        }
+        return groups
     }
 
     func wrappedRows(width: CGFloat, includeEntry: Bool = false) -> [Self] {
@@ -116,6 +156,7 @@ struct ScoreLayout {
             }
             row.appendX = appendX - shift
             row.continuesTie = end < fragments.count && fragments[end].tiedFromPrevious
+            row.acceptsAppend = end == fragments.count
             rows.append(row)
             start = end
         }

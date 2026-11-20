@@ -43,7 +43,7 @@ struct ScoreView: View {
             scoreSettings
             controls
             staff
-            Text("Select a note, then click a line or space on its staff to move it. End returns to note entry. A–G writes or edits, ↑↓ moves pitch, ←→ selects, Return inserts.")
+            Text("Click past the last note to add one. Click within the written staff to move a selected note. End returns to note entry. A–G writes or edits, ↑↓ moves pitch, ←→ selects, Return inserts.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -181,7 +181,7 @@ struct ScoreView: View {
             .contentShape(Rectangle())
             .gesture(SpatialTapGesture().onEnded { tap in
                 let point = CGPoint(x: tap.location.x / scale, y: tap.location.y / scale)
-                clickStaff(at: point, in: row, isLast: isLast)
+                clickStaff(at: point, in: row)
             })
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Bar \(row.firstBar), treble clef, \(meter.numerator) over \(meter.denominator)")
@@ -190,16 +190,18 @@ struct ScoreView: View {
             .accessibilityHint("Use the arrow keys to select or change pitch. Press Return to insert.")
     }
 
-    private func clickStaff(at point: CGPoint, in row: ScoreLayout, isLast: Bool) {
+    private func clickStaff(at point: CGPoint, in row: ScoreLayout) {
         focused = true
-        if let index = row.event(at: point) {
+        switch row.click(at: point, cursor: cursor, entryIndex: notes.count) {
+        case .select(let index):
             cursor = index
-        } else if point.x >= row.firstX - 22, cursor < notes.count, selected.pitch != nil,
-                  row.fragments.contains(where: { $0.index == cursor }) {
-            writePitch(ScoreLayout.pitch(at: point.y))
-        } else if let index = row.index(at: point.x, entryIndex: isLast ? notes.count : nil) {
-            cursor = index
-            if index == notes.count { writePitch(ScoreLayout.pitch(at: point.y)) }
+        case .movePitch(let pitch):
+            writePitch(pitch)
+        case .append(let pitch):
+            cursor = notes.count
+            writePitch(pitch)
+        case nil:
+            break
         }
     }
 
@@ -321,6 +323,34 @@ struct StaffDrawing: View {
     let cursor: Int?
     var showEntry = false
 
+    private struct Beam {
+        let direction: CGFloat
+        let x: CGFloat
+        let y: CGFloat
+        let slope: CGFloat
+
+        init?(_ notes: ArraySlice<ScoreLayout.Fragment>, height: CGFloat) {
+            let positions = notes.compactMap { note in note.pitch.map { (note.x, ScoreLayout.y(for: $0)) } }
+            let heights = positions.map { $0.1 }
+            guard let first = positions.first, let last = positions.last, last.0 > first.0,
+                  let top = heights.min(), let bottom = heights.max() else { return nil }
+            let middle = ScoreLayout.y(for: ScoreEvent.middleB)
+            direction = bottom - middle > middle - top ? -1 : 1
+            x = first.0
+            let tilt = min(12, max(-12, last.1 - first.1))
+            let slope = tilt / (last.0 - first.0)
+            self.slope = slope
+            let heightsAtStart = positions.map { $0.1 - ($0.0 - first.0) * slope }
+            let stemBase = direction < 0 ? heightsAtStart.min() ?? first.1 : heightsAtStart.max() ?? first.1
+            let stemLength: CGFloat = notes.contains { $0.value.flags > 2 } ? 39 : 32
+            y = min(height - 5 - max(0, tilt), max(5 - min(0, tilt), stemBase + direction * stemLength))
+        }
+
+        func point(at noteX: CGFloat, level: Int = 0) -> CGPoint {
+            CGPoint(x: noteX - direction * 5.5, y: y + (noteX - x) * slope - direction * CGFloat(6 * level))
+        }
+    }
+
     var body: some View {
         Canvas { context, size in
             for pitch in stride(from: 0, through: 8, by: 2) {
@@ -339,16 +369,25 @@ struct StaffDrawing: View {
             glyph(String(layout.meter.numerator), x: layout.meterX, y: 77, size: 24, in: context, color: .primary)
             glyph(String(layout.meter.denominator), x: layout.meterX, y: 101, size: 24, in: context, color: .primary)
 
+            let groups = layout.beamGroups
+            var beams: [Int: Beam] = [:]
+            for group in groups {
+                guard let beam = Beam(layout.fragments[group], height: size.height) else { continue }
+                for index in group { beams[index] = beam }
+            }
             var previous: ScoreLayout.Fragment?
-            for fragment in layout.fragments {
+            for (index, fragment) in layout.fragments.enumerated() {
                 let color: Color = fragment.index == cursor ? .accentColor : .primary
                 if fragment.index == cursor { highlight(fragment.x, height: size.height, in: context) }
-                draw(fragment, in: context, color: color)
+                draw(fragment, beam: beams[index], in: context, color: color)
                 if fragment.tiedFromPrevious, let pitch = fragment.pitch {
                     tie(from: previous.map { $0.x + 7 } ?? fragment.x - 22, to: fragment.x - 7,
                         pitch: pitch, in: context, color: color)
                 }
                 previous = fragment
+            }
+            for group in groups {
+                if let beam = beams[group.lowerBound] { drawBeams(for: group, using: beam, in: context) }
             }
             if layout.continuesTie, let previous, let pitch = previous.pitch {
                 tie(from: previous.x + 7, to: min(previous.x + 23, size.width - 12),
@@ -373,11 +412,12 @@ struct StaffDrawing: View {
     }
 
     private func highlight(_ x: CGFloat, height: CGFloat, in context: GraphicsContext) {
-        let rect = CGRect(x: x - 22, y: 5, width: 44, height: height - 10)
+        let halfWidth = ScoreLayout.selectionHalfWidth
+        let rect = CGRect(x: x - halfWidth, y: 5, width: halfWidth * 2, height: height - 10)
         context.fill(Path(roundedRect: rect, cornerRadius: 5), with: .color(.accentColor.opacity(0.10)))
     }
 
-    private func draw(_ note: ScoreLayout.Fragment, in context: GraphicsContext, color: Color) {
+    private func draw(_ note: ScoreLayout.Fragment, beam: Beam?, in context: GraphicsContext, color: Color) {
         let x = note.x
         guard let pitch = note.pitch else {
             drawRest(note, in: context, color: color)
@@ -402,7 +442,10 @@ struct StaffDrawing: View {
             headContext.fill(head, with: .color(color))
         }
 
-        if note.value != .whole {
+        if let beam {
+            let tip = beam.point(at: x)
+            line(in: context, from: CGPoint(x: tip.x, y: y), to: tip, color: color)
+        } else if note.value != .whole {
             let direction: CGFloat = pitch >= 4 ? 1 : -1
             let stemX = x - direction * 5.5
             let tip = y + direction * (note.value.flags > 2 ? 39 : 32)
@@ -420,6 +463,30 @@ struct StaffDrawing: View {
             glyph(accidental.rawValue, x: x - 16, y: y, size: 19, in: context, color: color)
         }
         if note.dotted { dot(x + 13, y: pitch.isMultiple(of: 2) ? y - 6 : y, in: context, color: color) }
+    }
+
+    private func drawBeams(for group: Range<Int>, using beam: Beam, in context: GraphicsContext) {
+        let notes = layout.fragments
+        let first = group.lowerBound
+        let last = group.upperBound - 1
+        func drawSegment(from start: CGFloat, to end: CGFloat, level: Int) {
+            var path = Path()
+            path.move(to: beam.point(at: start, level: level))
+            path.addLine(to: beam.point(at: end, level: level))
+            context.stroke(path, with: .color(.primary), lineWidth: 4)
+        }
+        drawSegment(from: notes[first].x, to: notes[last].x, level: 0)
+        for index in group {
+            let note = notes[index]
+            for level in 1..<note.value.flags {
+                if index < last, notes[index + 1].value.flags > level {
+                    drawSegment(from: note.x, to: notes[index + 1].x, level: level)
+                } else if index == first || notes[index - 1].value.flags <= level {
+                    let hook: CGFloat = index == last ? -12 : 12
+                    drawSegment(from: note.x, to: note.x + hook, level: level)
+                }
+            }
+        }
     }
 
     private func drawRest(_ note: ScoreLayout.Fragment, in context: GraphicsContext, color: Color) {
