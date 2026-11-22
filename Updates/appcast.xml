@@ -4,14 +4,14 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
   <channel>
     <title>Body and Soul Updates</title>
     <item>
-      <title>Body and Soul 1.3.8</title>
-      <sparkle:version>12</sparkle:version>
-      <sparkle:shortVersionString>1.3.8</sparkle:shortVersionString>
+      <title>Body and Soul 1.3.10</title>
+      <sparkle:version>14</sparkle:version>
+      <sparkle:shortVersionString>1.3.10</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/oscarwroche/body-and-soul/releases/download/v1.3.8/Body-and-Soul-v1.3.8-macOS-arm64.zip" sparkle:edSignature="tuKkxtvAusYGMoXdFupcCP+2QHCZTFX6vRjQOt+O72kMaldB1rWfK5mfVDzmqIAVIYtVq/nm/rr32BPllWWEAw==" length="1329032" type="application/zip"></enclosure>
+      <enclosure url="https://github.com/oscarwroche/body-and-soul/releases/download/v1.3.10/Body-and-Soul-v1.3.10-macOS-arm64.zip" sparkle:edSignature="/bnw9OgB/FX1sWFpZX2zYLhqMAQkIqEt0zZPK5DLNtwr7h/vhpkTHhO/kdldu/qQynpKRaiFRSMf/vMkvxMCAw==" length="1333712" type="application/zip"></enclosure>
     </item>
   </channel>
 </rss><!-- sparkle-signatures:
-edSignature: FwuHP5Opt/3JFys31AYmbdfnUaUF3JNNXaspAfa/ah1kITCAbM4NLehkMHKup9S8qN9F1Yv79wCLoWsmwNQvAw==
-length: 994
+edSignature: j3PjKmMGEfkQBXMlCDrr/rEh4gwefKOVnhSc5f4rBRD8yR/hycQ3U2O9F/z/gx9xA7nCaW+sEfvjmeFC2oGHCA==
+length: 998
 -->
